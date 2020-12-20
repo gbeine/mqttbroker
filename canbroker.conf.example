@@ -1,0 +1,13 @@
+[program:canbroker]
+command=/opt/service/canbroker/run
+process_name=%(program_name)s
+directory=/opt/service/canbroker
+umask=022
+autostart=true
+redirect_stderr=true
+stdout_logfile=/var/log/canbroker/main.log
+stdout_logfile_maxbytes=2MB
+stdout_logfile_backups=1
+stdout_capture_maxbytes=0
+stdout_events_enabled=false
+environment=LOGDIR=/var/log/canbroker

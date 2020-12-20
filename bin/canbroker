@@ -1,0 +1,196 @@
+#!/usr/bin/env python
+
+import json
+import signal
+import paho.mqtt.client as mqtt
+import schedule
+import time
+import sys
+
+topics_map = {}
+topics_factor = {}
+topics_type = {}
+topics_target = {}
+topics_cache = {}
+
+def signal_term(signal, frame):
+    global client
+    print("Disconnecting...")
+    client.disconnect()
+    print("Good bye!")
+    sys.exit(0)
+
+def subscribe_topic(topic):
+    if "target" in topic:
+        topics_target[topic["id"]] = topic["target"]
+    if "type" in topic:
+        topics_type[topic["id"]] = topic["type"]
+    if "values" in topic:
+        topics_map[topic["id"]] = []
+        for value in topic["values"]:
+             topics_map[topic["id"]].append(value["id"])
+             topics_map[value["id"]] = []
+             topics_map[value["id"]].append(topic["id"])
+             if "factor" in value:
+                topics_factor[value["id"]] = value["factor"]
+             topics_type[value["id"]] = value["type"]
+
+def publish(topic, message):
+    global topics_cache
+    print("Publishing message {} for topic {}".format(message, topic))
+    topics_cache[topic] = { 'msg': message, 'time': time.time() }
+    client.publish(topic, message)
+
+def publish_can_message(topic, index, value):
+    print("Topic {}, Index {}, Value {}".format(topic, index, value))
+    if len(topics_map[topic]) > index:
+        ptopic = topics_map[topic][index]
+        if topics_type[ptopic] == "float":
+            pvalue = "{:.1f}".format(int(value) / topics_factor[ptopic])
+        elif topics_type[ptopic] == "int":
+            pvalue = "{:d}".format(int(int(value) / topics_factor[ptopic]))
+        elif topics_type[ptopic] == "bool":
+            pvalue = "{:d}".format(int(value))
+        else:
+            print("Error: None or unkown type for topic {}".format(ptopic))
+            return
+        publish(ptopic, pvalue)
+    else:
+        print("No topic for Index {}".format(index))
+
+def handle_message_from_can(msg):
+    if topics_target[msg.topic] != "hassio":
+        print("Topic {} is not to be send to HASS.IO".format(msg.topic))
+        return
+    values = msg.payload.split()
+    if len(values) != 4 and len(values) != 16:
+        print("Error: messages does not contain 4 (analog) or 16 (digital) values - {}".format(msg.payload))
+        return
+    topics_cache[msg.topic] = { 'msg': msg.payload, 'time': time.time() }
+    for index, value in enumerate(values):
+        publish_can_message(msg.topic, index, value)
+
+def publish_hassio_message(topic, values):
+    print("Topic {}, Values {}".format(topic, values))
+    if topics_type[topic] == "digital":
+        pvalue = "{:d} {:d} {:d} {:d} {:d} {:d} {:d} {:d} {:d} {:d} {:d} {:d} {:d} {:d} {:d} {:d}".format(
+            values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7],
+            values[8], values[9], values[10], values[11], values[12], values[13], values[14], values[15])
+    elif topics_type[topic] == "analog":
+        pvalue = "{:.0f} {:.0f} {:.0f} {:.0f}".format(values[0], values[1], values[2], values[3])
+    else:
+        print("Error: Cannot publish for {}".format(topic))
+    publish(topic, pvalue)
+
+def handle_message_from_hassio(msg):
+    topics_cache[msg.topic] = { 'msg': msg.payload, 'time': time.time() }
+    ptopic = get_publish_topic(msg)
+    print("Topic for publishing is {}".format(ptopic))
+    if topics_target[ptopic] != "can":
+        print("Error: Topic {} is not to be send to CAN".format(ptopic))
+        return
+    topics = topics_map[ptopic]
+    print("Source topics for merge: {}".format(topics))
+    values = []
+    if topics_type[ptopic] == "digital":
+        maxvalues = 16
+    elif topics_type[ptopic] == "analog":
+        maxvalues = 4
+    else:
+        print("Error: Cannot publish for {}".format(ptopic))
+        return
+
+    for i in range(0, maxvalues):
+        if len(topics) > i:
+            if topics[i] in topics_cache:
+                if topics_type[topics[i]] == "float":
+                    value = float(topics_cache[topics[i]]['msg']) * topics_factor[topics[i]]
+                elif topics_type[topics[i]] == "int":
+                    value = int(float(topics_cache[topics[i]]['msg'])) * topics_factor[topics[i]]
+                elif topics_type[topics[i]] == "bool":
+                    value = int(float(topics_cache[topics[i]]['msg']))
+                else:
+                    print("Error: None or unkown type for topic {}".format(topics[i]))
+                    return
+            else:
+                if topics_type[topics[i]] == "bool":
+                    value = 0
+                else:
+                    print("No data for topic {}, not publishing".format(topics[i]))
+                    return
+        else:
+            value = 0
+        values.append(value)
+    publish_hassio_message(ptopic, values)
+
+def get_publish_topic(msg):
+    return topics_map[msg.topic][0]
+
+def publish_heartbeat(node, value):
+    print("Publishing heartbeat for {}, {}".format(node, value))
+    topic = node+"/heartbeat"
+    client.publish(topic, value)
+
+def configure_node(node):
+    if "heartbeat" in node:
+        print("Heartbeat for {} every {} seconds".format(node["id"], node["heartbeat"]))
+        schedule.every(node["heartbeat"]).seconds.do(publish_heartbeat, node["id"], time.time())
+
+def on_connect(client, userdata, flags, rc):
+    print("Connected with result code "+str(rc))
+
+    for topic in topics_map:
+        print("Subscribing for topic "+topic)
+        client.subscribe(topic)
+
+def on_message(client, userdata, msg):
+    global topics_cache
+    print("Received message for topic {} {}".format(msg.topic, msg.payload))
+
+    msg.payload = str(msg.payload.decode())
+
+    if msg.topic in topics_cache:
+        print("Message '{}', cache '{}'".format(msg.payload, topics_cache[msg.topic]))
+        if topics_cache[msg.topic]['time'] + 900 < time.time():
+            print("Cache value to old, removing")
+            topics_cache.pop(msg.topic, None)
+        elif topics_cache[msg.topic]['msg'] == msg.payload:
+            print("Ignoring last message, no changes to cache")
+            return
+
+    ptopic = get_publish_topic(msg)
+    if ptopic in topics_target and topics_target[ptopic] == "can":
+        handle_message_from_hassio(msg)
+    elif msg.topic in topics_target and topics_target[msg.topic] == "hassio":
+        handle_message_from_can(msg)
+
+def connect_mqtt(config):
+    global client
+    client = mqtt.Client()
+    client.username_pw_set(config["user"], config["password"])
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.connect(config["host"], config["port"])
+    client.loop_start()
+
+def main():
+    signal.signal(signal.SIGTERM, signal_term)
+
+    with open('canbroker.json') as json_data:
+        config = json.load(json_data)
+
+    for topic in config["canbroker"]["topics"]:
+        subscribe_topic(topic)
+
+    for node in config["canbroker"]["nodes"]:
+        configure_node(node)
+
+    connect_mqtt(config["canbroker"]["mqtt"])
+
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
+if __name__ == "__main__":
+    main()
+
