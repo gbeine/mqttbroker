@@ -1,6 +1,6 @@
 # canbroker
 
-A broker for CAN messages on MQTT
+A broker for messages on MQTT
 
 ## Install
 
@@ -10,5 +10,5 @@ A broker for CAN messages on MQTT
 
 ## Configuration
 
-- copy ```canbroker.json.example```
+- copy ```mqttbroker.conf.example```
 - configure as you like

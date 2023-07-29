@@ -1,7 +1,10 @@
 #!/bin/sh
+#
+# Run script for mqttbroker
+#
+# (c) Gerrit Beine, 2019-2023
+#
 
-touch ${LOGDIR}/.tmpfs
+. venv/bin/activate
 
-. bin/activate
-
-exec bin/canbroker
+exec /usr/bin/env python mqttbroker

@@ -1,0 +1,77 @@
+{
+    "mqtt_user": "mqttbroker",
+    "mqtt_password": "t0p_s3cr3t",
+    "topics": [
+        {
+            "round": 2,
+            "sources": [
+                "home/source/1"
+            ],
+            "topic": "home/target/1",
+            "type": "float"
+        },
+        {
+            "append": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+            ],
+            "handle": "combine",
+            "sources": [
+                "home/source/digital1",
+                "home/source/digital2",
+                "home/source/digital3"
+            ],
+            "topic": "home/target/digital1_16"
+        },
+        {
+            "factor": 100,
+            "handle": "split",
+            "select": 1,
+            "sources": [
+                "home/source/digital1_4"
+            ],
+            "topic": "home/target/digital2",
+            "type": "int"
+        },
+        {
+            "handle": "add",
+            "sources": [
+                "home/source/v1",
+                "home/source/v2",
+                "home/source/v3"
+            ],
+            "topic": "home/target/summe",
+            "type": "int"
+        },
+        {
+            "handle": "min",
+            "sources": [
+                "home/source/v1",
+                "home/source/v2",
+                "home/source/v3",
+            ],
+            "topic": "home/target/minimum",
+            "type": "int"
+        },
+        {
+            "handle": "max",
+            "sources": [
+                "home/source/v1",
+                "home/source/v2",
+                "home/source/v3",
+            ],
+            "topic": "home/target/maximum",
+            "type": "int"
+        },
+}

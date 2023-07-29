@@ -1,6 +1,11 @@
 #!/bin/sh
+#
+# (c) Gerrit Beine, 2019-2022
+#
 
-python3 -m venv .
+python3 -m venv venv
 
-. bin/activate
-pip install wheel paho-mqtt schedule
+. venv/bin/activate
+
+pip install --upgrade pip
+pip install -r requirements.txt
