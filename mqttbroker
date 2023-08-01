@@ -154,7 +154,7 @@ def publish(topic, value):
             return
 
     publish_cache[topic] = payload
-#    mqtt_client.publish(topic, payload)
+    mqtt_client.publish(topic, payload)
 
 
 def setstate(target, source, value):
