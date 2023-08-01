@@ -45,7 +45,7 @@ def handle(source, value):
     logging.debug('Processing message "%s" from topic "%s"', value, source)
 
     target_topics = daemon_args.mqtt_sources[source]
-    return
+
     for target in target_topics:
         if daemon_args.mqtt_targets[target]['handle'] == 'publish':
             handle_publish(target, source, value)
@@ -204,7 +204,8 @@ def start_mqtt():
     logging.debug('Starting MQTT')
     global daemon_args, mqtt_client
     mqtt_client = mqtt.Client(daemon_args.mqtt_clientid)
-    mqtt_client.tls_set(daemon_args.mqtt_ssl_ca_path, tls_version=ssl.PROTOCOL_TLSv1_2)
+    if 'mqtt_ssl_ca_path' in daemon_args:
+        mqtt_client.tls_set(daemon_args.mqtt_ssl_ca_path, tls_version=ssl.PROTOCOL_TLSv1_2)
     if daemon_args.verbose:
         mqtt_client.enable_logger()
     if daemon_args.mqtt_user is not None and daemon_args.mqtt_password is not None:
