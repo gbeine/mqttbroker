@@ -35,8 +35,10 @@ def format_payload(target, value):
             value = float(value)
         elif config['type'] == 'str':
             value = str(value)
+        elif config['type'] == 'bool_int':
+            value = int(str(value).lower() in ['true', '1', 'on', 'yes'])
         elif config['type'] == 'bool':
-            value = bool(value)
+            value = bool(str(value).lower() in ['true', '1', 'on', 'yes'])
 
     return value
 
@@ -246,6 +248,8 @@ def parse_args():
             action='store_true',
             help='Be verbose while running.')
     daemon_args = parser.parse_args()
+    if daemon_args.verbose:
+        logging.basicConfig(level=logging.DEBUG)
 
 
 def parse_config():
@@ -313,7 +317,6 @@ def init_topics():
 
 
 def main():
-    logging.basicConfig(level=logging.DEBUG)
     parse_args()
     parse_config()
     init_topics()
