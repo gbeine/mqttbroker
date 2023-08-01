@@ -1,4 +1,4 @@
-# canbroker
+# mqttbroker
 
 A broker for messages on MQTT
 

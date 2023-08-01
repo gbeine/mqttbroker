@@ -4,20 +4,24 @@ import argparse
 import json
 import logging
 import os
+import ssl
+import sys
 import paho.mqtt.client as mqtt
 
+from cachetools import TTLCache
 
 mqtt_client = None
 daemon_args = None
-topic_cache = None
-topic_states = None
+topic_states = {}
+publish_cache = TTLCache(maxsize=1024, ttl=600)
+receive_cache = TTLCache(maxsize=1024, ttl=600)
 
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
-def format(target, value):
+def format_payload(target, value):
     config = daemon_args.mqtt_targets[target]
 
     if 'factor' in config:
@@ -38,10 +42,10 @@ def format(target, value):
 
 
 def handle(source, value):
-    global daemon_args
+    logging.debug('Processing message "%s" from topic "%s"', value, source)
 
     target_topics = daemon_args.mqtt_sources[source]
-
+    return
     for target in target_topics:
         if daemon_args.mqtt_targets[target]['handle'] == 'publish':
             handle_publish(target, source, value)
@@ -64,27 +68,15 @@ def handle_publish(target, source, value):
 
 
 def handle_combine(target, source, value):
-    global topic_cache, daemon_args
+    logging.debug('Combine incoming messages for topic "%s" with value "%s" from "%s"', target, value, source)
 
-    logging.debug('Combine incoming message from topic %s with value %s for %s', source, value, target)
+    setstate(target, source, str(value))
 
-    value = str(value)
+    values = states(target, break_if_missing=True)
 
-    if topic_cache[target] is None:
-        topic_cache[target] = {}
-
-    if source in topic_cache[target] and topic_cache[target][source] == value:
-        logging.info('No change in value for topic %s', target)
+    if values is None:
+        logging.info('Missing values in cache for target "%s"', target)
         return
-
-    topic_cache[target][source] = value
-
-    values = []
-    for s in daemon_args.mqtt_targets[target]['sources']:
-        if not s in topic_cache[target]:
-            logging.info('No value for source topic %s in target cache for %s', s, target)
-            return
-        values.append(topic_cache[target][s])
 
     if 'append' in daemon_args.mqtt_targets[target]:
         values = values + daemon_args.mqtt_targets[target]['append']
@@ -95,77 +87,39 @@ def handle_combine(target, source, value):
 
 
 def handle_add(target, source, value):
-    global topic_cache, daemon_args
+    logging.debug('Adding incoming messages for topic "%s" with value "%s" from "%s"', target, value, source)
 
-    logging.debug('Adding incoming message from topic %s with value %s for %s', source, value, target)
+    setstate(target, source, float(value))
 
-    if topic_cache[target] is None:
-        topic_cache[target] = {}
+    values = states(target, break_if_missing=True)
 
-    if source in topic_cache[target] and topic_cache[target][source] == value:
-        logging.info('No change in value for topic %s', source)
+    if values is None:
+        logging.info('Missing values in cache for target "%s"', target)
         return
 
-    topic_cache[target][source] = float(value)
-
-    sum_value = 0
-    for s in daemon_args.mqtt_targets[target]['sources']:
-        if not s in topic_cache[target]:
-            logging.info('No value for source topic %s in target cache for %s', s, target)
-            return
-        sum_value = sum_value + topic_cache[target][s]
-
-    publish(target, sum_value)
+    publish(target, sum(values))
 
 
 def handle_min(target, source, value):
-    global topic_cache, daemon_args
+    logging.debug('Determine minimum for topic "%s"', target)
 
-    logging.debug('Determine minimum for %s', target)
+    setstate(target, source, float(value))
 
-    if topic_cache[target] is None:
-        topic_cache[target] = {}
-
-    if source in topic_cache[target] and topic_cache[target][source] == value:
-        logging.info('No change in value for topic %s', topic)
-        return
-
-    topic_cache[target][source] = float(value)
-
-    values = []
-    for s in daemon_args.mqtt_targets[target]['sources']:
-        if not s in topic_cache[target]:
-            logging.info('No value for source topic %s in target cache for %s', s, target)
-            continue
-        values.append(topic_cache[target][s])
+    values = states(target)
 
     if len(values) == 0:
-        logging.info('No values in target cache for %s', target)
+        logging.info('No values in cache for target "%s"', target)
         return
 
     publish(target, min(values))
 
 
 def handle_max(target, source, value):
-    global topic_cache, daemon_args
+    logging.debug('Determine maximum for topic "%s"', target)
 
-    logging.debug('Determine minimum for %s', target)
+    setstate(target, source, float(value))
 
-    if topic_cache[target] is None:
-        topic_cache[target] = {}
-
-    if source in topic_cache[target] and topic_cache[target][source] == value:
-        logging.info('No change in value for topic %s', topic)
-        return
-
-    topic_cache[target][source] = float(value)
-
-    values = []
-    for s in daemon_args.mqtt_targets[target]['sources']:
-        if not s in topic_cache[target]:
-            logging.info('No value for source topic %s in target cache for %s', s, target)
-            continue
-        values.append(topic_cache[target][s])
+    values = states(target)
 
     if len(values) == 0:
         logging.info('No values in target cache for %s', target)
@@ -175,18 +129,11 @@ def handle_max(target, source, value):
 
 
 def handle_split(target, source, value):
-    global topic_cache, daemon_args
-
     logging.debug('Split incoming message from topic %s with value %s for %s', source, value, target)
 
-    if topic_cache[target] is None:
-        topic_cache[target] = {}
+    setstate(target, source, str(value))
 
-    if source in topic_cache[target] and topic_cache[target][source] == value:
-        logging.info('No change in value for topic %s', target)
-        return
-
-    if not 'select' in daemon_args.mqtt_targets[target]:
+    if 'select' not in daemon_args.mqtt_targets[target]:
         logging.error('Cannot split as no select is specified for topic %s', target)
         return
 
@@ -197,31 +144,56 @@ def handle_split(target, source, value):
 
 
 def publish(topic, value):
-    global mqtt_client, topic_states
+    payload = format_payload(topic, value)
+    logging.info('Publish value "%s" to topic "%s"', topic, payload)
 
-    payload = format(topic, value)
+    if topic in publish_cache.keys():
+        logging.debug('Cache hit for topic "%s"', topic)
+        if receive_cache.get(topic) == payload:
+            logging.info('No change in value, message "%s" for topic "%s" not published', payload, topic)
+            return
 
-    # Flood protection
-    if topic_states[topic] == payload:
-        logging.info('No change in value for topic %s', topic)
-        return
+    publish_cache[topic] = payload
+#    mqtt_client.publish(topic, payload)
 
-    logging.info('Publish value for topic %s: %s', topic, payload)
 
-    topic_states[topic] = payload
-    mqtt_client.publish(topic, payload)
+def setstate(target, source, value):
+    if topic_states[target] is None:
+        topic_states[target] = {}
+
+    topic_states[target][source] = value
+
+
+def states(target, break_if_missing=False):
+    values = []
+    for s in daemon_args.mqtt_targets[target]['sources']:
+        if s not in topic_states[target]:
+            logging.info('No value for source topic "%s" in cache for target "%s"', s, target)
+            if break_if_missing:
+                return
+            else:
+                continue
+        values.append(topic_states[target][s])
+    return values
 
 
 def on_mqtt_connect(client, userdata, flags, rc):
-    global daemon_args
-
     for topic in daemon_args.mqtt_sources.keys():
-        print("Subscribe: {}".format(topic))
+        logging.info('Subscribed to topic "%s"', topic)
         client.subscribe(topic)
 
 
 def on_mqtt_received(client, userdata, message):
-    global daemon_args, item_states
+    logging.debug('Received message "%s" for topic "%s"', message.payload, message.topic)
+
+    if message.topic in receive_cache.keys():
+        logging.debug('Cache hit for topic "%s"', message.topic)
+        if receive_cache.get(message.topic) == message.payload:
+            logging.info('Received message "%s" for topic "%s", but no change in value', message.payload, message.topic)
+            return
+
+    receive_cache[message.topic] = message.payload
+
     topic = message.topic
     value = str(message.payload.decode())
 
@@ -229,8 +201,10 @@ def on_mqtt_received(client, userdata, message):
 
 
 def start_mqtt():
+    logging.debug('Starting MQTT')
     global daemon_args, mqtt_client
     mqtt_client = mqtt.Client(daemon_args.mqtt_clientid)
+    mqtt_client.tls_set(daemon_args.mqtt_ssl_ca_path, tls_version=ssl.PROTOCOL_TLSv1_2)
     if daemon_args.verbose:
         mqtt_client.enable_logger()
     if daemon_args.mqtt_user is not None and daemon_args.mqtt_password is not None:
@@ -274,11 +248,12 @@ def parse_args():
 
 
 def parse_config():
-    global daemon_args
+    logging.debug('Parse config')
 
     daemon_args.items = []
 
     if not os.path.isfile(daemon_args.config):
+        logging.warning('Config file not found: %s', daemon_args.config)
         return
 
     with open(daemon_args.config, "r") as config_file:
@@ -295,12 +270,15 @@ def parse_config():
             daemon_args.mqtt_user = data['mqtt_user']
         if 'mqtt_password' in data:
             daemon_args.mqtt_password = data['mqtt_password']
+        if 'mqtt_ssl_ca_path' in data:
+            daemon_args.mqtt_ssl_ca_path = data['mqtt_ssl_ca_path']
         if 'topics' in data:
             daemon_args.topics = data['topics']
 
 
 def init_topics():
-    global daemon_args, topic_cache, topic_states
+    logging.debug('Init topics')
+    global topic_states
 
     daemon_args.mqtt_sources = {}
     daemon_args.mqtt_targets = {}
@@ -331,11 +309,10 @@ def init_topics():
             daemon_args.mqtt_targets[target['topic']]['sources'].append( source )
 
     topic_states = dict.fromkeys(daemon_args.mqtt_targets)
-    topic_cache = dict.fromkeys(daemon_args.mqtt_targets)
 
 
 def main():
-    logging.basicConfig(level=logging.WARN)
+    logging.basicConfig(level=logging.DEBUG)
     parse_args()
     parse_config()
     init_topics()
