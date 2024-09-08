@@ -8,13 +8,13 @@ import ssl
 import sys
 import paho.mqtt.client as mqtt
 
-from cachetools import TTLCache
+from cachetools import MRUCache
 
 mqtt_client = None
 daemon_args = None
 topic_states = {}
-publish_cache = TTLCache(maxsize=1024, ttl=600)
-receive_cache = TTLCache(maxsize=1024, ttl=600)
+publish_cache = MRUCache(maxsize=4096)
+receive_cache = MRUCache(maxsize=4096)
 
 verify_mode = {
     'CERT_NONE': ssl.CERT_NONE,
