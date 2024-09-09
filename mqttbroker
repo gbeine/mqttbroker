@@ -8,13 +8,8 @@ import ssl
 import sys
 import paho.mqtt.client as mqtt
 
-from cachetools import MRUCache
+from cachetools import TTLCache
 
-mqtt_client = None
-daemon_args = None
-topic_states = {}
-publish_cache = MRUCache(maxsize=4096)
-receive_cache = MRUCache(maxsize=4096)
 
 verify_mode = {
     'CERT_NONE': ssl.CERT_NONE,
@@ -27,6 +22,14 @@ tls_versions = {
     'TLSv1.1': ssl.PROTOCOL_TLSv1_1,
     'TLSv1.2': ssl.PROTOCOL_TLSv1_2
 }
+
+
+mqtt_client = None
+daemon_args = None
+topic_states = {}
+publish_cache = TTLCache(maxsize=4096, ttl=600)
+receive_cache = TTLCache(maxsize=4096, ttl=600)
+
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
@@ -49,7 +52,7 @@ def format_payload(target, value):
         elif config['type'] == 'bool_int':
             value = int(str(value).lower() in ['true', '1', 'on', 'yes'])
         elif config['type'] == 'bool':
-            value = bool(str(value).lower() in ['true', '1', 'on', 'yes'])
+            value = str(bool(str(value).lower() in ['true', '1', 'on', 'yes'])).lower()
 
     return value
 
@@ -77,7 +80,7 @@ def handle(source, value):
 def handle_publish(target, source, value):
     logging.debug('Publish incoming message from topic %s with value %s to %s', source, value, target)
 
-    publish(target, value)
+    publish(target, format_payload(target, value))
 
 
 def handle_combine(target, source, value):
@@ -110,7 +113,7 @@ def handle_add(target, source, value):
         logging.info('Missing values in cache for target "%s"', target)
         return
 
-    publish(target, sum(values))
+    publish(target, format_payload(target, sum(values)))
 
 
 def handle_min(target, source, value):
@@ -124,7 +127,7 @@ def handle_min(target, source, value):
         logging.info('No values in cache for target "%s"', target)
         return
 
-    publish(target, min(values))
+    publish(target, format_payload(target, min(values)))
 
 
 def handle_max(target, source, value):
@@ -138,7 +141,7 @@ def handle_max(target, source, value):
         logging.info('No values in target cache for %s', target)
         return
 
-    publish(target, max(values))
+    publish(target,format_payload(target, max(values)))
 
 
 def handle_split(target, source, value):
@@ -150,14 +153,14 @@ def handle_split(target, source, value):
         logging.error('Cannot split as no select is specified for topic %s', target)
         return
 
+# TODO: create topics automatically as subtopics if 'select' is not defined
     select = daemon_args.mqtt_targets[target]['select']
     values = value.split(' ')
 
-    publish(target, values[select])
+    publish(target, format_payload(target, values[select]))
 
 
-def publish(topic, value):
-    payload = format_payload(topic, value)
+def publish(topic, payload):
     logging.info('Publish value "%s" to topic "%s"', topic, payload)
 
     if topic in publish_cache.keys():
@@ -271,6 +274,8 @@ def parse_args():
     parser.add_argument('--mqtt_verify_mode', type=str,
             default='CERT_REQUIRED',
             help='The SSL certificate verification mode. One of CERT_NONE, CERT_OPTIONAL, CERT_REQUIRED. Default is CERT_REQUIRED')
+    parser.add_argument('--mqtt_ssl_ca_path', type=str,
+            help='The SSL certificate authority file to verify the MQTT server.')
     parser.add_argument('--mqtt_tls_no_verify',
             default=False,
             action='store_true',
@@ -314,11 +319,16 @@ def parse_config():
             daemon_args.mqtt_user = data['mqtt_user']
         if 'mqtt_password' in data:
             daemon_args.mqtt_password = data['mqtt_password']
+        if 'mqtt_tls' in data:
+            daemon_args.mqtt_tls = bool(data['mqtt_tls'])
+        if 'mqtt_tls_version' in data:
+            daemon_args.mqtt_tls = data['mqtt_tls_version']
+        if 'mqtt_verify_mode' in data:
+            daemon_args.mqtt_tls = data['mqtt_verify_mode']
         if 'mqtt_ssl_ca_path' in data:
             daemon_args.mqtt_ssl_ca_path = data['mqtt_ssl_ca_path']
-            daemon_args.mqtt_tls = bool(data['mqtt_tls'])
         if 'mqtt_tls_no_verify' in data:
-            daemon_args.mqtt_tls_no_verify = bool(data['mqtt_tls'])
+            daemon_args.mqtt_tls_no_verify = bool(data['mqtt_tls_no_verify'])
         if 'verbose' in data:
             daemon_args.verbose = bool(data['verbose'])
         if 'topics' in data:
@@ -362,9 +372,14 @@ def init_topics():
 
 def main():
     global daemon_args, mqtt_client
+    # Configuration
     daemon_args = parse_args()
     parse_config()
     init_topics()
+    # Verbosity
+    if daemon_args.verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    # MQTT connection
     mqtt_client = init_mqtt()
     mqtt_client.loop_forever()
 
