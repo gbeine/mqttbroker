@@ -226,7 +226,6 @@ def init_mqtt():
         if 'mqtt_ssl_ca_path' in daemon_args:
             mqtt_client.tls_set(daemon_args.mqtt_ssl_ca_path)#, cert_reqs=cert_reqs, tls_version=tls_version)
         elif cert_reqs is not None and tls_version is not None:
-            print(cert_reqs)
             mqtt_client.tls_set(cert_reqs=cert_reqs, tls_version=tls_version)
         else:
             logging.error("Invalid TLS configuration.")
