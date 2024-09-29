@@ -107,6 +107,9 @@ Connect topics bidirectional
 `type` can be one of `str`, `int`, `float`, `bool` ('true' or 'false' in lower cases), and `bool_int` ('1' or '0').
 `bool` accepts 'true', '1', 'on', 'yes' as values for `true`.
 
+For all data types it is possible to set an initial value using `init`.
+This is helpful if values should be combined and there is no SLA when partial values will be published on MQTT. 
+
 ```
 {
     "topic": "target/topic/str_example",
@@ -142,6 +145,22 @@ Connect topics bidirectional
       "source/topic/bool_int_example"
     ],
     "type": "bool_int"
+},
+{
+    "topic": "target/topic/bool_example",
+    "sources": [
+      "source/topic/bool_example"
+    ],
+    "type": "bool",
+    "init": "false"
+},
+{
+    "topic": "target/topic/bool_int_example",
+    "sources": [
+      "source/topic/bool_int_example"
+    ],
+    "type": "bool_int",
+    "init": 1
 }
 ```
 

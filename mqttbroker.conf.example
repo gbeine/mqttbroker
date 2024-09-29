@@ -32,6 +32,7 @@
                 "home/source/digital2",
                 "home/source/digital3"
             ],
+            "init": 1,
             "topic": "home/target/digital1_16"
         },
         {
