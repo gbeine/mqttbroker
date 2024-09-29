@@ -366,8 +366,9 @@ def init_topics():
 
             daemon_args.mqtt_targets[target['topic']]['sources'].append( source )
 
+        topic_states[target['topic']] = {}
+
         if 'init' in target:
-            topic_states[target['topic']] = {}
             for source in daemon_args.mqtt_targets[target['topic']]['sources']:
                 topic_states[target['topic']][source] = format_payload(target['topic'], target['init'])
 
