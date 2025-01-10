@@ -1,6 +1,16 @@
 {
+    "mqtt_host": "localhost",
+    "mqtt_port": "1883",
+    "mqtt_keepalive": "300",
+    "mqtt_clientid": "mqttbroker",
     "mqtt_user": "mqttbroker",
     "mqtt_password": "t0p_s3cr3t",
+    "mqtt_tls": "false",
+    "mqtt_tls_version": "TLSv1.2",
+    "mqtt_verify_mode": "CERT_NONE",
+    "mqtt_ssl_ca_path": "/etc/ssl/myca.pem",
+    "mqtt_tls_no_verify": "false",
+    "verbose": "false",
     "topics": [
         {
             "round": 2,

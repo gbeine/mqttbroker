@@ -319,17 +319,17 @@ def parse_config():
         if 'mqtt_password' in data:
             daemon_args.mqtt_password = data['mqtt_password']
         if 'mqtt_tls' in data:
-            daemon_args.mqtt_tls = bool(data['mqtt_tls'])
+            daemon_args.mqtt_tls = data['mqtt_tls'].lower() == 'true'
         if 'mqtt_tls_version' in data:
-            daemon_args.mqtt_tls = data['mqtt_tls_version']
+            daemon_args.mqtt_tls_version = data['mqtt_tls_version']
         if 'mqtt_verify_mode' in data:
-            daemon_args.mqtt_tls = data['mqtt_verify_mode']
+            daemon_args.mqtt_verify_mode = data['mqtt_verify_mode']
         if 'mqtt_ssl_ca_path' in data:
             daemon_args.mqtt_ssl_ca_path = data['mqtt_ssl_ca_path']
         if 'mqtt_tls_no_verify' in data:
-            daemon_args.mqtt_tls_no_verify = bool(data['mqtt_tls_no_verify'])
+            daemon_args.mqtt_tls_no_verify = data['mqtt_tls_no_verify'].lower() == 'true'
         if 'verbose' in data:
-            daemon_args.verbose = bool(data['verbose'])
+            daemon_args.verbose = data['verbose'].lower() == 'true'
         if 'topics' in data:
             daemon_args.topics = data['topics']
 
