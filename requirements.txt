@@ -1,4 +1,4 @@
 # Python requirements
 paho-mqtt
 cachetools
-pyjq
+python-jsonpath

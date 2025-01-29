@@ -292,7 +292,9 @@ The selection uses array counting, so the first value has index 0, the second va
 
 ### Querying JSON
 
-JSON payload can be parsed using [jq](https://jqlang.github.io/jq/manual/) syntax.
+JSON payload can be parsed using [RFC9535 JSONPath](https://datatracker.ietf.org/doc/html/rfc9535) syntax.
+
+Currently, only pointers to distinct values are supported for querying, see [JSON Pointers](https://jg-rp.github.io/python-jsonpath/pointers/) in [python-jsonpath](https://jg-rp.github.io/python-jsonpath/) documentation. 
 
 ```
 {
@@ -300,8 +302,8 @@ JSON payload can be parsed using [jq](https://jqlang.github.io/jq/manual/) synta
     "sources": [
       "source/topic/json"
     ],
-    "handle": "all",
-    "query": "."
+    "handle": "json",
+    "query": "/path/to/key"
 },
 {
     "topic": "target/topic/query/result",
@@ -309,15 +311,7 @@ JSON payload can be parsed using [jq](https://jqlang.github.io/jq/manual/) synta
       "source/topic/json"
     ],
     "handle": "first",
-    "query": ".key"
-},
-{
-    "topic": "target/topic/query/ensureone",
-    "sources": [
-      "source/topic/json"
-    ],
-    "handle": "one",
-    "query": ".key"
+    "query": "/array/0/element/number"
 }
 ```
 
