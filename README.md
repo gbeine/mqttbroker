@@ -290,6 +290,37 @@ The selection uses array counting, so the first value has index 0, the second va
 }
 ```
 
+### Querying JSON
+
+JSON payload can be parsed using [jq](https://jqlang.github.io/jq/manual/) syntax.
+
+```
+{
+    "topic": "target/topic/query/result",
+    "sources": [
+      "source/topic/json"
+    ],
+    "handle": "all",
+    "query": "."
+},
+{
+    "topic": "target/topic/query/result",
+    "sources": [
+      "source/topic/json"
+    ],
+    "handle": "first",
+    "query": ".key"
+},
+{
+    "topic": "target/topic/query/ensureone",
+    "sources": [
+      "source/topic/json"
+    ],
+    "handle": "one",
+    "query": ".key"
+}
+```
+
 ## Running mqttbroker
 
 I use [systemd](https://systemd.io/) to manage my local services.

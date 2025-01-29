@@ -8,6 +8,7 @@ import signal
 import ssl
 import sys
 import paho.mqtt.client as mqtt
+import pyjq
 
 from cachetools import TTLCache
 
@@ -76,6 +77,13 @@ def handle(source, value):
             handle_min(target, source, value)
         elif daemon_args.mqtt_targets[target]['handle'] == 'max':
             handle_max(target, source, value)
+        elif daemon_args.mqtt_targets[target]['handle'] == 'all':
+            handle_jq_all(target, source, value)
+        elif daemon_args.mqtt_targets[target]['handle'] == 'first':
+            handle_jq_first(target, source, value)
+        elif daemon_args.mqtt_targets[target]['handle'] == 'one':
+            handle_jq_one(target, source, value)
+
 
 
 def handle_publish(target, source, value):
@@ -159,6 +167,70 @@ def handle_split(target, source, value):
     values = value.split(' ')
 
     publish(target, format_payload(target, values[select]))
+
+
+def handle_jq_all(target, source, value):
+    logging.debug('Parse incoming message from topic %s with value %s for %s with jq.all', source, value, target)
+
+    setstate(target, source, str(value))
+
+    if 'query' not in daemon_args.mqtt_targets[target]:
+        logging.error('Cannot jq as no query is specified for topic %s', target)
+        return
+
+    try:
+        jsonvalue = json.loads(value)
+    except json.decoder.JSONDecodeError:
+        logging.error('Parsing error for message %s', value)
+        return
+
+    query = daemon_args.mqtt_targets[target]['query']
+    jqresult = pyjq.all(query, jsonvalue)
+
+    publish(target, format_payload(target, jqresult))
+
+
+def handle_jq_first(target, source, value):
+    logging.debug('Parse incoming message from topic %s with value %s for %s with jq.first', source, value, target)
+
+    setstate(target, source, str(value))
+
+    if 'query' not in daemon_args.mqtt_targets[target]:
+        logging.error('Cannot jq as no query is specified for topic %s', target)
+        return
+
+    try:
+        jsonvalue = json.loads(value)
+    except json.decoder.JSONDecodeError:
+        logging.error('Parsing error for message %s', value)
+        return
+
+    query = daemon_args.mqtt_targets[target]['query']
+    jqresult = pyjq.first(query, jsonvalue)
+
+    publish(target, format_payload(target, jqresult))
+
+def handle_jq_one(target, source, value):
+    logging.debug('Parse incoming message from topic %s with value %s for %s with jq.one', source, value, target)
+
+    setstate(target, source, str(value))
+
+    if 'query' not in daemon_args.mqtt_targets[target]:
+        logging.error('Cannot jq as no query is specified for topic %s', target)
+        return
+
+    try:
+        jsonvalue = json.loads(value)
+    except json.decoder.JSONDecodeError:
+        logging.error('Parsing error for message %s', value)
+        return
+
+    query = daemon_args.mqtt_targets[target]['query']
+    try:
+        jqresult = pyjq.one(query, jsonvalue)
+        publish(target, format_payload(target, jqresult))
+    except ValueError:
+        logging.error('Query error for message %s', value)
 
 
 def publish(topic, payload):
@@ -353,6 +425,8 @@ def init_topics():
             daemon_args.mqtt_targets[target['topic']]['round'] = int(target['round'])
         if 'factor' in target:
             daemon_args.mqtt_targets[target['topic']]['factor'] = float(target['factor'])
+        if 'query' in target:
+            daemon_args.mqtt_targets[target['topic']]['query'] = target['query']
 
         for source in target['sources']:
             if source in daemon_args.mqtt_sources:
