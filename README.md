@@ -315,6 +315,27 @@ Currently, only pointers to distinct values are supported for querying, see [JSO
 }
 ```
 
+### Mapping values
+
+MQTT payloads can be normalized using static mappings before they are republished. Unmapped values are ignored.
+
+```
+{
+    "topic": "target/topic/mapping/result",
+    "sources": [
+      "source/topic/1"
+    ],
+    "handle": "map",
+    "type": "str",
+    "map": {
+      "Comfort": "comfort",
+      "Standby": "home",
+      "Night": "sleep",
+      "Frost Protection": "away"
+    }
+}
+```
+
 ## Running mqttbroker
 
 I use [systemd](https://systemd.io/) to manage my local services.

@@ -77,6 +77,8 @@ def handle(source, value):
             handle_min(target, source, value)
         elif daemon_args.mqtt_targets[target]['handle'] == 'max':
             handle_max(target, source, value)
+        elif daemon_args.mqtt_targets[target]['handle'] == 'map':
+            handle_map(target, source, value)
         elif daemon_args.mqtt_targets[target]['handle'] == 'json':
             handle_json(target, source, value)
 
@@ -86,6 +88,22 @@ def handle_publish(target, source, value):
     logging.debug('Publish incoming message from topic %s with value %s to %s', source, value, target)
 
     publish(target, format_payload(target, value))
+
+
+def handle_map(target, source, value):
+    logging.debug('Map incoming message from topic "%s" with value "%s" from "%s"', target, value, source)
+
+    mapping = daemon_args.mqtt_targets[target].get('map')
+
+    if not mapping:
+        logging.warning('No mapping configured for topic "%s"', target)
+        return
+
+    if value not in mapping:
+        logging.info('No mapping entry for value "%s" on topic "%s"', value, target)
+        return
+
+    publish(target, format_payload(target, mapping[value]))
 
 
 def handle_combine(target, source, value):
@@ -382,6 +400,8 @@ def init_topics():
             daemon_args.mqtt_targets[target['topic']]['factor'] = float(target['factor'])
         if 'query' in target:
             daemon_args.mqtt_targets[target['topic']]['query'] = target['query']
+        if 'map' in target:
+            daemon_args.mqtt_targets[target['topic']]['map'] = target['map']
 
         for source in target['sources']:
             if source in daemon_args.mqtt_sources:

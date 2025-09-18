@@ -70,7 +70,7 @@
             "sources": [
                 "home/source/v1",
                 "home/source/v2",
-                "home/source/v3",
+                "home/source/v3"
             ],
             "topic": "home/target/minimum",
             "type": "int"
@@ -80,9 +80,24 @@
             "sources": [
                 "home/source/v1",
                 "home/source/v2",
-                "home/source/v3",
+                "home/source/v3"
             ],
             "topic": "home/target/maximum",
             "type": "int"
         },
+        {
+            "handle": "map",
+            "map": {
+                "Comfort": "comfort",
+                "Standby": "home",
+                "Night": "sleep",
+                "Frost Protection": "away"
+            },
+            "sources": [
+                "/home/source"
+            ],
+            "topic": "home/target",
+            "type": "str"
+        }
+    ]
 }
