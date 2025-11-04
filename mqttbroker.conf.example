@@ -87,17 +87,17 @@
         },
         {
             "handle": "map",
-            "map": {
-                "Comfort": "comfort",
-                "Standby": "home",
-                "Night": "sleep",
-                "Frost Protection": "away"
-            },
             "sources": [
                 "/home/source"
             ],
             "topic": "home/target",
-            "type": "str"
+            "type": "str",
+            "map": [
+                {"from": "Comfort", "to": "comfort"},
+                {"from": "Standby", "to": "home"},
+                {"from": "Night", "to": "sleep"},
+                {"from": "Frost Protection", "to": "away"}
+            ]
         }
     ]
 }

@@ -317,7 +317,11 @@ Currently, only pointers to distinct values are supported for querying, see [JSO
 
 ### Mapping values
 
-MQTT payloads can be normalized using static mappings before they are republished. Unmapped values are ignored.
+Map incoming payloads using equals-based rules. First matching rule wins.
+
+- `map`: list of rules: `{ "from": <value>, "to": <value> }`.
+
+Example (string normalization via explicit rules):
 
 ```
 {
@@ -327,12 +331,46 @@ MQTT payloads can be normalized using static mappings before they are republishe
     ],
     "handle": "map",
     "type": "str",
-    "map": {
-      "Comfort": "comfort",
-      "Standby": "home",
-      "Night": "sleep",
-      "Frost Protection": "away"
-    }
+    "map": [
+      {"from": "Comfort", "to": "comfort"},
+      {"from": "Standby", "to": "home"},
+      {"from": "Night", "to": "sleep"},
+      {"from": "Frost Protection", "to": "away"}
+    ]
+}
+```
+
+Boolean mapping examples (DPT 1.001 Switch):
+
+- HA → KNX command mapping (ON/OFF to 0/1):
+
+```
+{
+    "topic": "bus/knx/5/3/65",
+    "sources": [
+      "homeassistant/whatever/command"
+    ],
+    "handle": "map",
+    "map": [
+      {"from": "OFF", "to": "0"},
+      {"from": "ON",  "to": "1"}
+    ]
+}
+```
+
+- KNX → HA state mapping (0/1 to ON/OFF):
+
+```
+{
+    "topic": "home/dachgeschoss/buero_andre/switch/steckdose_2/state",
+    "sources": [
+      "bus/knx/6/3/65"
+    ],
+    "handle": "map",
+    "map": [
+      {"from": "0", "to": "OFF"},
+      {"from": "1",  "to": "ON"}
+    ]
 }
 ```
 
