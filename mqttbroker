@@ -37,26 +37,65 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
+def _parse_bool_like(value_str):
+    if isinstance(value_str, bool):
+        return value_str
+    if value_str is None:
+        return None
+    s = str(value_str).strip().lower()
+    if s in ['true', '1', 'on', 'yes']:
+        return True
+    if s in ['false', '0', 'off', 'no']:
+        return False
+    return None
+
+
 def format_payload(target, value):
+    """Transform and serialize the outgoing value according to the target config.
+
+    - Numeric transforms: apply round if configured.
+    - Type casting: honor 'type' for text output only.
+    """
     config = daemon_args.mqtt_targets[target]
+    raw_value = value
+    t = config.get('type')
 
-    if 'factor' in config:
-        value = float(value) * config['factor']
-    if 'round' in config:
-        value = round(float(value), config['round'])
-    if 'type' in config:
-        if config['type'] == 'int':
+    if t not in ('bool', 'bool_int'):
+        try:
+            if 'factor' in config:
+                value = float(value) * float(config['factor'])
+            if 'round' in config:
+                value = round(float(value), config['round'])
+        except (ValueError, TypeError) as exc:
+            logging.warning('Failed numeric transform for topic "%s" value "%s": %s', target, raw_value, exc)
+            value = raw_value
+
+    try:
+        if t == 'int':
             value = int(float(value))
-        elif config['type'] == 'float':
+        elif t == 'float':
             value = float(value)
-        elif config['type'] == 'str':
+        elif t == 'str':
             value = str(value)
-        elif config['type'] == 'bool_int':
-            value = int(str(value).lower() in ['true', '1', 'on', 'yes'])
-        elif config['type'] == 'bool':
-            value = str(bool(str(value).lower() in ['true', '1', 'on', 'yes'])).lower()
-
-    return value
+        elif t == 'bool_int':
+            if isinstance(value, str):
+                value = int(_parse_bool_like(value) is True)
+            else:
+                value = int(bool(value))
+        elif t == 'bool':
+            if isinstance(value, str):
+                value = str(_parse_bool_like(value) is True).lower()
+            else:
+                value = str(bool(value)).lower()
+        elif t is None:
+            pass
+        else:
+            logging.error('Unknown type "%s" for topic "%s"; keeping raw value', t, target)
+            value = raw_value
+        return str(value)
+    except (ValueError, TypeError) as exc:
+        logging.warning('Failed type conversion "%s" for topic "%s" value "%s": %s', t, target, raw_value, exc)
+        return str(raw_value)
 
 
 def handle(source, value):
@@ -77,6 +116,8 @@ def handle(source, value):
             handle_min(target, source, value)
         elif daemon_args.mqtt_targets[target]['handle'] == 'max':
             handle_max(target, source, value)
+        elif daemon_args.mqtt_targets[target]['handle'] == 'map':
+            handle_map(target, source, value)
         elif daemon_args.mqtt_targets[target]['handle'] == 'json':
             handle_json(target, source, value)
 
@@ -86,6 +127,31 @@ def handle_publish(target, source, value):
     logging.debug('Publish incoming message from topic %s with value %s to %s', source, value, target)
 
     publish(target, format_payload(target, value))
+
+
+def handle_map(target, source, value):
+    logging.debug('Map incoming message from topic "%s" with value "%s" from "%s"', target, value, source)
+
+    rules = daemon_args.mqtt_targets[target].get('map')
+
+    if not rules:
+        logging.warning('No mapping configured for topic "%s"', target)
+        return
+
+    if not isinstance(rules, list):
+        logging.error('Invalid mapping for topic "%s": expected list of rules', target)
+        return
+
+    for rule in rules:
+        if not isinstance(rule, dict) or 'to' not in rule:
+            logging.warning('Skipping invalid map rule for topic "%s": %s', target, rule)
+            continue
+        if value == rule.get('from'):
+            out = rule.get('to')
+            publish(target, format_payload(target, out))
+            return
+
+    logging.info('No mapping rule matched for value "%s" on topic "%s"', value, target)
 
 
 def handle_combine(target, source, value):
@@ -189,16 +255,18 @@ def handle_json(target, source, value):
 
 
 def publish(topic, payload):
-    logging.info('Publish value "%s" to topic "%s"', topic, payload)
+    logging.info('Publish value "%s" to topic "%s"', payload, topic)
+
+    payload_str = payload if isinstance(payload, str) else str(payload)
 
     if topic in publish_cache.keys():
         logging.debug('Cache hit for topic "%s"', topic)
-        if receive_cache.get(topic) == payload:
-            logging.info('No change in value, message "%s" for topic "%s" not published', payload, topic)
+        if receive_cache.get(topic) == payload_str:
+            logging.info('No change in value, message "%s" for topic "%s" not published', payload_str, topic)
             return
 
-    publish_cache[topic] = payload
-    mqtt_client.publish(topic, payload)
+    publish_cache[topic] = payload_str
+    mqtt_client.publish(topic, payload_str)
 
 
 def setstate(target, source, value):
@@ -230,16 +298,18 @@ def on_mqtt_connect(client, userdata, flags, reason_code, properties):
 def on_mqtt_received(client, userdata, message):
     logging.debug('Received message "%s" for topic "%s"', message.payload, message.topic)
 
+    current = str(message.payload.decode())
+
     if message.topic in receive_cache.keys():
         logging.debug('Cache hit for topic "%s"', message.topic)
-        if receive_cache.get(message.topic) == message.payload:
+        cached = receive_cache.get(message.topic)
+        if cached == current:
             logging.info('Received message "%s" for topic "%s", but no change in value', message.payload, message.topic)
             return
 
-    receive_cache[message.topic] = message.payload
-
     topic = message.topic
-    value = str(message.payload.decode())
+    value = current
+    receive_cache[message.topic] = value
 
     handle(topic, value)
 
@@ -382,6 +452,8 @@ def init_topics():
             daemon_args.mqtt_targets[target['topic']]['factor'] = float(target['factor'])
         if 'query' in target:
             daemon_args.mqtt_targets[target['topic']]['query'] = target['query']
+        if 'map' in target:
+            daemon_args.mqtt_targets[target['topic']]['map'] = target['map']
 
         for source in target['sources']:
             if source in daemon_args.mqtt_sources:
